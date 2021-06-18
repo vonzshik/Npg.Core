@@ -182,6 +182,44 @@ namespace Npg.Core.Raw.Tests
         }
 
         [Test]
+        public async Task ExtendedQueryFortunesSingleRow()
+        {
+            var endpoint = IPEndPoint.Parse(EndPoint);
+            using var db = await PgDB.OpenAsync(endpoint, UserName, Password, "Fortunes");
+            await db.ExecuteExtendedAsync("SELECT * FROM \"fortune\"");
+
+            await db.EnsureSinglePacketAsync();
+            var response = db.ReadPacket();
+            PgDB.ValidateResponseMessage(response, BackendMessageCode.ParseComplete);
+
+            await db.EnsureSinglePacketAsync();
+            response = db.ReadPacket();
+            PgDB.ValidateResponseMessage(response, BackendMessageCode.BindComplete);
+
+            await db.EnsureSinglePacketAsync();
+            response = db.ReadPacket();
+            PgDB.ValidateResponseMessage(response, BackendMessageCode.RowDescription);
+
+            await db.EnsureSinglePacketAsync();
+            response = db.ReadPacket();
+            PgDB.ValidateResponseMessage(response, BackendMessageCode.DataRow);
+
+            var columnCount = BinaryPrimitives.ReadInt16BigEndian(response.Slice(5, 2).Span);
+            Assert.AreEqual(2, columnCount);
+
+            var columnLength = BinaryPrimitives.ReadInt32BigEndian(response.Slice(7, 4).Span);
+            Assert.AreEqual(4, columnLength);
+
+            var columnValue = BinaryPrimitives.ReadInt32BigEndian(response.Slice(11, columnLength).Span);
+            Assert.AreEqual(1, columnValue);
+
+            var secondColumnLength = BinaryPrimitives.ReadInt32BigEndian(response.Slice(15, 4).Span);
+            Assert.AreEqual(34, secondColumnLength);
+
+            var secondColumnValue = PgDB.ParseSimpleQueryDataRowColumn(response.Slice(19, secondColumnLength));
+        }
+
+        [Test]
         public async Task SimpleQueryMultipleRows()
         {
             var endpoint = IPEndPoint.Parse(EndPoint);

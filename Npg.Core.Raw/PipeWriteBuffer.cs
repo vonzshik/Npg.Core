@@ -1,25 +1,22 @@
 ﻿using System;
-using System.Buffers;
 using System.Buffers.Binary;
-using System.IO;
+using System.IO.Pipelines;
 using System.Threading.Tasks;
 
 namespace Npg.Core.Raw
 {
-    public sealed class WriteBuffer : IDisposable
+    public class PipeWriteBuffer
     {
-        private readonly Stream _stream;
+        private readonly PipeWriter _output;
 
-        private readonly Memory<byte> _buffer;
-        private readonly IMemoryOwner<byte> _bufferOwner;
+        private Memory<byte> _buffer;
 
         private int _position;
 
-        public WriteBuffer(Stream stream)
+        public PipeWriteBuffer(PipeWriter output)
         {
-            this._stream = stream;
-            this._bufferOwner = MemoryPool<byte>.Shared.Rent(8192);
-            this._buffer = this._bufferOwner.Memory;
+            this._output = output;
+            this._buffer = this._output.GetMemory(8192);
         }
 
         public Memory<byte> Buffer => this._buffer.Slice(this._position);
@@ -35,8 +32,9 @@ namespace Npg.Core.Raw
             if (this._position == 0)
                 return;
 
-            await this._stream.WriteAsync(this._buffer.Slice(0, this._position)).ConfigureAwait(false);
-            await this._stream.FlushAsync().ConfigureAwait(false);
+            this._output.Advance(this._position);
+            await this._output.FlushAsync().ConfigureAwait(false);
+            this._buffer = this._output.GetMemory(8192);
             this._position = 0;
         }
 
@@ -56,11 +54,6 @@ namespace Npg.Core.Raw
         {
             this._buffer.Span[this._position] = value;
             this._position++;
-        }
-
-        public void Dispose()
-        {
-            this._bufferOwner.Dispose();
         }
     }
 }

@@ -77,17 +77,5 @@ namespace Npg.Core.Raw
         {
             this._bufferOwner.Dispose();
         }
-
-        //public byte ReadByte()
-        //{
-        //    this._position++;
-        //    return this._buffer[this._position - 1];
-        //}
-
-        //public int ReadInt32()
-        //{
-        //    this._position++;
-        //    return BinaryPrimitives.ReadInt32BigEndian(this._buffer.AsSpan(this._position - 1, 4));
-        //}
     }
 }
