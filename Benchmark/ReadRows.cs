@@ -2,6 +2,7 @@
 using Npg.Core.Raw;
 using Npgsql;
 using System;
+using System.Buffers;
 using System.Collections.Generic;
 using System.Linq;
 using System.Net;
@@ -21,6 +22,7 @@ namespace Benchmark
 
         string RawQuery = string.Empty;
         PgDB RawDB;
+        PipePgDB PipeRawDB;
 
         [GlobalSetup(Target = nameof(ReadNpgsql))]
         public void SetupNpgsql()
@@ -36,6 +38,14 @@ namespace Benchmark
         {
             var endpoint = IPEndPoint.Parse("127.0.0.1:5432");
             this.RawDB = await PgDB.OpenAsync(endpoint, "postgres", "Master1234", "postgres");
+            this.RawQuery = $"SELECT generate_series(1, {this.NumRows})";
+        }
+
+        [GlobalSetup(Targets = new[] { nameof(ReadPipeRawSimple), nameof(ReadPipeRawExtended) })]
+        public async Task SetupPipeRaw()
+        {
+            var endpoint = IPEndPoint.Parse("127.0.0.1:5432");
+            this.PipeRawDB = await PipePgDB.OpenAsync(endpoint, "postgres", "Master1234", "postgres");
             this.RawQuery = $"SELECT generate_series(1, {this.NumRows})";
         }
 
@@ -85,6 +95,43 @@ namespace Benchmark
         {
             var response = this.RawDB.ReadPacketAsSpan();
             return (BackendMessageCode)response[0];
+        }
+
+        [Benchmark]
+        public async ValueTask ReadPipeRawSimple()
+        {
+            await this.PipeRawDB.ExecuteSimpleAsync(this.RawQuery);
+
+            var response = await this.PipeRawDB.ReadSinglePacketAsync();
+            var responseCode = ReadPacket(response);
+
+            while (responseCode != BackendMessageCode.ReadyForQuery)
+            {
+                response = await this.PipeRawDB.ReadSinglePacketAsync();
+                responseCode = ReadPacket(response);
+            }
+        }
+
+        [Benchmark]
+        public async ValueTask ReadPipeRawExtended()
+        {
+            await this.PipeRawDB.ExecuteExtendedAsync(this.RawQuery);
+
+            var response = await this.PipeRawDB.ReadSinglePacketAsync();
+            var responseCode = ReadPacket(response);
+
+            while (responseCode != BackendMessageCode.ReadyForQuery)
+            {
+                response = await this.PipeRawDB.ReadSinglePacketAsync();
+                responseCode = ReadPacket(response);
+            }
+        }
+
+        public static BackendMessageCode ReadPacket(ReadOnlySequence<byte> response)
+        {
+            var sq = new SequenceReader<byte>(response);
+            sq.TryRead(out var read);
+            return (BackendMessageCode)read;
         }
     }
 }
