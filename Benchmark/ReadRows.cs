@@ -1,19 +1,15 @@
 ﻿using BenchmarkDotNet.Attributes;
 using Npg.Core.Raw;
 using Npgsql;
-using System;
 using System.Buffers;
-using System.Collections.Generic;
-using System.Linq;
 using System.Net;
-using System.Text;
 using System.Threading.Tasks;
 
 namespace Benchmark
 {
     public class ReadRows
     {
-        const string DefaultConnectionString = "Server=localhost;User ID=postgres;Password=Master1234;Database=postgres";
+        const string DefaultConnectionString = "Server=127.0.0.1;User ID=postgres;Password=Master1234;Database=postgres";
 
         [Params(1, 10, 100, 1000)]
         public int NumRows { get; set; }

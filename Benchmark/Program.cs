@@ -1,6 +1,5 @@
 ﻿using BenchmarkDotNet.Running;
 using System.Reflection;
-using System.Threading.Tasks;
 
 namespace Benchmark
 {
