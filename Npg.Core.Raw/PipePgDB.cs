@@ -70,7 +70,7 @@ namespace Npg.Core.Raw
             }
         }
 
-        public async ValueTask ExecuteSimpleAsync(string sql)
+        public ValueTask ExecuteSimpleAsync(string sql)
         {
             static void Write(PipePgDB db, string sql)
             {
@@ -84,7 +84,7 @@ namespace Npg.Core.Raw
             }
 
             Write(this, sql);
-            await this.FlushAsync().ConfigureAwait(false);
+            return this.FlushAsync();
         }
 
         public ValueTask ExecuteExtendedAsync(string sql)
