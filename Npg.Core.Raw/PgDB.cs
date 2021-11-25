@@ -1,5 +1,6 @@
 ﻿using System;
 using System.Buffers.Binary;
+using System.Collections.Concurrent;
 using System.Diagnostics;
 using System.IO;
 using System.Net;
@@ -19,6 +20,10 @@ namespace Npg.Core.Raw
         private readonly WriteBuffer _writeBuffer;
         private readonly ReadBuffer _readBuffer;
 
+        private readonly SemaphoreSlim _semaphore = new(1);
+        private readonly ConcurrentQueue<TaskCompletionSource> _queue = new();
+        private int _inFlightCount;
+
         private int _packetLength = -1;
 
         public PgDB(Socket socket)
@@ -34,6 +39,7 @@ namespace Npg.Core.Raw
             this._stream.Dispose();
             this._readBuffer.Dispose();
             this._writeBuffer.Dispose();
+            this._semaphore.Dispose();
         }
 
         private static readonly UTF8Encoding UTF8Encoding = new (false, true);
@@ -233,7 +239,44 @@ namespace Npg.Core.Raw
             }
 
             Write(this, sql);
+
             return this.FlushAsync();
+        }
+
+        public async Task<TaskCompletionSource?> EnterPipelineWriteLockAsync()
+        {
+            var value = Interlocked.Increment(ref this._inFlightCount);
+            if (value == 1)
+            {
+                return null;
+            }
+            var tcs = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+            await this._semaphore.WaitAsync().ConfigureAwait(false);
+            this._queue.Enqueue(tcs);
+            return tcs;
+        }
+
+        public void ReleasePipelineWriteLock()
+        {
+            this._semaphore.Release();
+        }
+
+        public void CompletePipelineRead()
+        {
+            var value = Interlocked.Decrement(ref this._inFlightCount);
+            if (value > 0)
+            {
+                var sw = new SpinWait();
+
+                TaskCompletionSource? tcs;
+                while (!this._queue.TryDequeue(out tcs))
+                {
+                    sw.SpinOnce();
+                }
+
+                Debug.Assert(tcs is not null);
+                tcs.SetResult();
+            }
         }
 
         public static string ParseSimpleQueryDataRowColumn(ReadOnlyMemory<byte> column)
