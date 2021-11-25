@@ -243,6 +243,27 @@ namespace Npg.Core.Raw
             return this.FlushAsync();
         }
 
+        public ValueTask ExecuteSyncAsync()
+        {
+            static void Write(PgDB db)
+            {
+                var bytes = db._writeBuffer.Buffer.Span;
+
+                WriteSync(db, bytes.Slice(5));
+            }
+
+            static int WriteSync(PgDB db, Span<byte> bytes)
+            {
+                db._writeBuffer.WriteByte(FrontendMessageCode.Sync);
+                db._writeBuffer.WriteInt32(4);
+                return 0;
+            }
+
+            Write(this);
+
+            return this.FlushAsync();
+        }
+
         public async Task<TaskCompletionSource?> EnterPipelineWriteLockAsync()
         {
             var value = Interlocked.Increment(ref this._inFlightCount);

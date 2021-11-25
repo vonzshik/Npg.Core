@@ -1,5 +1,6 @@
 ﻿using System;
 using System.Buffers;
+using System.Diagnostics;
 using System.IO;
 using System.Threading.Tasks;
 
@@ -56,10 +57,18 @@ namespace Npg.Core.Raw
             var read = this._read;
             var count = this._buffer.Length - read;
 
+            var sw = Stopwatch.StartNew();
+
             while (read < bytes)
             {
                 read += await this._stream.ReadAsync(this._buffer.Slice(read, count)).ConfigureAwait(false);
                 count -= read;
+            }
+
+            var elapsed = sw.Elapsed;
+            if (elapsed.TotalMilliseconds > 1)
+            {
+                Console.WriteLine($"Elapsed ensure: {elapsed.TotalMilliseconds}");
             }
 
             this._read = read;

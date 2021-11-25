@@ -111,7 +111,7 @@ namespace Benchmark
         {
             for (var i = 0; i < Queries; i++)
             {
-                await this.RawDB.ExecuteExtendedAsync(this.RawQuery);
+                await this.RawDB.ExecuteSyncAsync();
             }
             for (var i = 0; i < Queries; i++)
             {
