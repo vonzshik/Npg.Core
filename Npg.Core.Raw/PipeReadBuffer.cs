@@ -38,7 +38,7 @@ namespace Npg.Core.Raw
                 var buffer = result.Buffer;
                 if (buffer.Length >= bytes)
                 {
-                    return buffer.Slice(0, bytes);
+                    return buffer;
                 }
 
                 this.Advance(buffer);
