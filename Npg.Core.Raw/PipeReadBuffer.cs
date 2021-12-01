@@ -41,7 +41,7 @@ namespace Npg.Core.Raw
                     return buffer.Slice(0, bytes);
                 }
 
-                this._input.AdvanceTo(buffer.Start, buffer.End);
+                this.Advance(buffer);
             }
         }
 

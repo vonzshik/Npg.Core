@@ -3,6 +3,7 @@ using System;
 using System.Buffers;
 using System.Buffers.Binary;
 using System.Diagnostics;
+using System.IO.Pipelines;
 using System.Net;
 using System.Security.Cryptography;
 using System.Text;
@@ -17,7 +18,6 @@ namespace Npg.Core.Raw
         private readonly PipeWriteBuffer _writeBuffer;
         private readonly PipeReadBuffer _readBuffer;
 
-        private int _packetLength = -1;
         private SequencePosition? _packetEnd;
 
         public PipePgDB(SocketConnection connection)
@@ -38,7 +38,10 @@ namespace Npg.Core.Raw
 
         public static async ValueTask<PipePgDB> OpenAsync(EndPoint endPoint, string username, string? password, string? database)
         {
-            var connection = await SocketConnection.ConnectAsync(endPoint).ConfigureAwait(false);
+            var connection = await SocketConnection.ConnectAsync(endPoint, new PipeOptions(
+                readerScheduler: PipeScheduler.Inline,
+                writerScheduler: PipeScheduler.Inline,
+                useSynchronizationContext: false)).ConfigureAwait(false);
             var db = new PipePgDB(connection);
 
             try
@@ -390,7 +393,6 @@ namespace Npg.Core.Raw
                 this._readBuffer.Consume(this._packetEnd.Value);
             }
 
-            Debug.Assert(this._packetLength == -1);
             var packet = this._readBuffer.TryEnsureFast(5);
             if (packet.Length < 5)
             {
@@ -399,10 +401,9 @@ namespace Npg.Core.Raw
 
             var length = ReadInt32BigEndian(packet.Slice(1)) + 1;
             Debug.Assert(length < 8192);
-            this._packetLength = length;
             if (packet.Length >= length)
             {
-                return new ValueTask<ReadOnlySequence<byte>>(ReadPacket(packet));
+                return new ValueTask<ReadOnlySequence<byte>>(ReadPacket(packet, length));
             }
 
             this._readBuffer.Advance(packet);
@@ -414,10 +415,9 @@ namespace Npg.Core.Raw
             var packet = await this._readBuffer.EnsureAsync(5).ConfigureAwait(false);
             var length = ReadInt32BigEndian(packet.Slice(1)) + 1;
             Debug.Assert(length < 8192);
-            this._packetLength = length;
             if (packet.Length >= length)
             {
-                return ReadPacket(packet);
+                return ReadPacket(packet, length);
             }
 
             this._readBuffer.Advance(packet);
@@ -425,14 +425,12 @@ namespace Npg.Core.Raw
         }
 
         private async ValueTask<ReadOnlySequence<byte>> ReadSinglePacketAsyncSlow(int length, CancellationToken cancellationToken = default)
-            => ReadPacket(await this._readBuffer.EnsureAsync(length).ConfigureAwait(false));
+            => ReadPacket(await this._readBuffer.EnsureAsync(length).ConfigureAwait(false), length);
 
-        private ReadOnlySequence<byte> ReadPacket(ReadOnlySequence<byte> packet)
+        private ReadOnlySequence<byte> ReadPacket(ReadOnlySequence<byte> packet, int length)
         {
-            var length = this._packetLength;
             Debug.Assert(packet.Length >= length);
             this._packetEnd = packet.GetPosition(length);
-            this._packetLength = -1;
             return packet.Slice(0, length);
         }
 
