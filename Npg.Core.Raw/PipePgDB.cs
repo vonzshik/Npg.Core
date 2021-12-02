@@ -407,7 +407,6 @@ namespace Npg.Core.Raw
                 return new ValueTask<ReadOnlySequence<byte>>(ReadPacket(packet, length));
             }
 
-            //this._readBuffer.Advance(packet);
             return this.ReadSinglePacketAsyncSlow(length, cancellationToken);
         }
 
@@ -421,12 +420,18 @@ namespace Npg.Core.Raw
                 return ReadPacket(packet, length);
             }
 
-            //this._readBuffer.Advance(packet);
             return await this.ReadSinglePacketAsyncSlow(length, cancellationToken).ConfigureAwait(false);
         }
 
         private async ValueTask<ReadOnlySequence<byte>> ReadSinglePacketAsyncSlow(int length, CancellationToken cancellationToken = default)
-            => ReadPacket(await this._readBuffer.EnsureAsync(length).ConfigureAwait(false), length);
+        {
+            var packet = this._readBuffer.TryEnsureFast(length);
+            if (packet.IsEmpty)
+            {
+                packet = await this._readBuffer.EnsureAsync(length).ConfigureAwait(false);
+            }
+            return ReadPacket(packet, length);
+        }
 
         private ReadOnlySequence<byte> ReadPacket(ReadOnlySequence<byte> packet, int length)
         {
