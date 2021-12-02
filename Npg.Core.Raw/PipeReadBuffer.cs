@@ -14,14 +14,29 @@ namespace Npg.Core.Raw
             this._input = input;
         }
 
+        private ReadOnlySequence<byte>? _buffer;
+        private long _offset;
+
         public ReadOnlySequence<byte> TryEnsureFast(int bytes)
         {
+            if (_buffer.HasValue)
+            {
+                if (_buffer.Value.Length - _offset >= bytes)
+                {
+                    return _buffer.Value.Slice(_offset);
+                }
+
+                this.Advance(_buffer.Value);
+                _buffer = null;
+            }
+
             if (_input.TryRead(out var result))
             {
                 var buffer = result.Buffer;
-                if (buffer.Length >= bytes)
+                if (buffer.Length - _offset >= bytes)
                 {
-                    return buffer;
+                    _buffer = buffer;
+                    return buffer.Slice(_offset);
                 }
 
                 this.Advance(buffer);
@@ -32,13 +47,19 @@ namespace Npg.Core.Raw
 
         public async ValueTask<ReadOnlySequence<byte>> EnsureAsync(int bytes)
         {
+            if (this._buffer.HasValue)
+            {
+                this.Advance(this._buffer.Value);
+            }
+
             while (true)
             {
                 var result = await _input.ReadAsync().ConfigureAwait(false);
                 var buffer = result.Buffer;
-                if (buffer.Length >= bytes)
+                if (buffer.Length - this._offset >= bytes)
                 {
-                    return buffer;
+                    _buffer = buffer;
+                    return buffer.Slice(_offset);
                 }
 
                 this.Advance(buffer);
@@ -47,6 +68,18 @@ namespace Npg.Core.Raw
 
         public void Advance(ReadOnlySequence<byte> sequence) => this._input.AdvanceTo(sequence.Start, sequence.End);
 
-        public void Consume(SequencePosition position) => this._input.AdvanceTo(position);
+        public void Consume(int length)
+        {
+            if (this._buffer.HasValue)
+            {
+                _offset += length;
+                if (_offset > 8192)
+                {
+                    this._input.AdvanceTo(this._buffer.Value.Slice(_offset).Start);
+                    _offset = 0;
+                    _buffer = null;
+                }
+            }
+        }
     }
 }

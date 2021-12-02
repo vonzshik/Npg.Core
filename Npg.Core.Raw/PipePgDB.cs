@@ -18,7 +18,7 @@ namespace Npg.Core.Raw
         private readonly PipeWriteBuffer _writeBuffer;
         private readonly PipeReadBuffer _readBuffer;
 
-        private SequencePosition? _packetEnd;
+        private int? _packetEnd;
 
         public PipePgDB(SocketConnection connection)
         {
@@ -41,6 +41,7 @@ namespace Npg.Core.Raw
             var connection = await SocketConnection.ConnectAsync(endPoint, new PipeOptions(
                 readerScheduler: PipeScheduler.Inline,
                 writerScheduler: PipeScheduler.Inline,
+                minimumSegmentSize: 8192,
                 useSynchronizationContext: false)).ConfigureAwait(false);
             var db = new PipePgDB(connection);
 
@@ -406,7 +407,7 @@ namespace Npg.Core.Raw
                 return new ValueTask<ReadOnlySequence<byte>>(ReadPacket(packet, length));
             }
 
-            this._readBuffer.Advance(packet);
+            //this._readBuffer.Advance(packet);
             return this.ReadSinglePacketAsyncSlow(length, cancellationToken);
         }
 
@@ -420,7 +421,7 @@ namespace Npg.Core.Raw
                 return ReadPacket(packet, length);
             }
 
-            this._readBuffer.Advance(packet);
+            //this._readBuffer.Advance(packet);
             return await this.ReadSinglePacketAsyncSlow(length, cancellationToken).ConfigureAwait(false);
         }
 
@@ -430,7 +431,7 @@ namespace Npg.Core.Raw
         private ReadOnlySequence<byte> ReadPacket(ReadOnlySequence<byte> packet, int length)
         {
             Debug.Assert(packet.Length >= length);
-            this._packetEnd = packet.GetPosition(length);
+            this._packetEnd = length;
             return packet.Slice(0, length);
         }
 
