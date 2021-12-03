@@ -15,21 +15,21 @@ namespace Npg.Core.Raw
             this._input = input;
         }
 
-        private ReadOnlySequence<byte>? _buffer;
+        private ReadOnlySequence<byte> _buffer = ReadOnlySequence<byte>.Empty;
         private long _offset;
 
         public ReadOnlySequence<byte> TryEnsureFast(int bytes)
         {
-            if (_buffer.HasValue)
+            if (!_buffer.IsEmpty)
             {
-                if (_buffer.Value.Length - _offset >= bytes)
+                if (_buffer.Length - _offset >= bytes)
                 {
-                    return _buffer.Value.Slice(_offset);
+                    return _buffer.Slice(_offset);
                 }
 
-                this.Advance(_buffer.Value.Slice(_offset));
+                this.Advance(_buffer.Slice(_offset));
                 _offset = 0;
-                _buffer = null;
+                _buffer = ReadOnlySequence<byte>.Empty;
             }
 
             Debug.Assert(_offset == 0);
