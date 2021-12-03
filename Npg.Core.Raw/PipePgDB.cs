@@ -18,8 +18,6 @@ namespace Npg.Core.Raw
         private readonly PipeWriteBuffer _writeBuffer;
         private readonly PipeReadBuffer _readBuffer;
 
-        private int? _packetEnd;
-
         public PipePgDB(SocketConnection connection)
         {
             this._connection = connection;
@@ -387,58 +385,50 @@ namespace Npg.Core.Raw
             ValidateResponseMessage(resp, BackendMessageCode.AuthenticationRequest);
         }
 
-        public ValueTask<ReadOnlySequence<byte>> ReadSinglePacketAsync(CancellationToken cancellationToken = default)
+        public async ValueTask<ReadOnlySequence<byte>> ReadSinglePacketAsync(CancellationToken cancellationToken = default)
         {
-            if (_packetEnd.HasValue)
-            {
-                this._readBuffer.Consume(this._packetEnd.Value);
-            }
-
-            var packet = this._readBuffer.TryEnsureFast(5);
-            if (packet.Length < 5)
-            {
-                return this.ReadSinglePacketAsyncSlow(cancellationToken);
-            }
-
-            var length = ReadInt32BigEndian(packet.Slice(1)) + 1;
-            Debug.Assert(length < 8192);
-            if (packet.Length >= length)
-            {
-                return new ValueTask<ReadOnlySequence<byte>>(ReadPacket(packet, length));
-            }
-
-            return this.ReadSinglePacketAsyncSlow(length, cancellationToken);
+            var memory = await ReadMultiplePacketsAsync(cancellationToken).ConfigureAwait(false);
+            Debug.Assert(memory.Length >= 5);
+            var firstPacketLength = ReadInt32BigEndian(memory.Slice(1)) + 1;
+            Debug.Assert(firstPacketLength <= 4096);
+            Debug.Assert(memory.Length >= firstPacketLength);
+            memory.Slice(0, firstPacketLength).CopyTo(_readBuffer.PacketBuffer);
+            Consume(firstPacketLength);
+            return new ReadOnlySequence<byte>(_readBuffer.PacketBuffer, 0, firstPacketLength);
         }
 
-        private async ValueTask<ReadOnlySequence<byte>> ReadSinglePacketAsyncSlow(CancellationToken cancellationToken = default)
+        public ValueTask<ReadOnlySequence<byte>> ReadMultiplePacketsAsync(CancellationToken cancellationToken = default)
         {
-            var packet = await this._readBuffer.EnsureAsync(5).ConfigureAwait(false);
-            var length = ReadInt32BigEndian(packet.Slice(1)) + 1;
-            Debug.Assert(length < 8192);
-            if (packet.Length >= length)
+            var memory = this._readBuffer.TryEnsureFast(5);
+            if (memory.Length < 5)
             {
-                return ReadPacket(packet, length);
+                return this.ReadMultiplePacketsAsyncSlow(cancellationToken);
             }
 
-            return await this.ReadSinglePacketAsyncSlow(length, cancellationToken).ConfigureAwait(false);
-        }
-
-        private async ValueTask<ReadOnlySequence<byte>> ReadSinglePacketAsyncSlow(int length, CancellationToken cancellationToken = default)
-        {
-            var packet = this._readBuffer.TryEnsureFast(length);
-            if (packet.IsEmpty)
+            var firstPacketLength = ReadInt32BigEndian(memory.Slice(1)) + 1;
+            Debug.Assert(firstPacketLength < 8192);
+            if (memory.Length >= firstPacketLength)
             {
-                packet = await this._readBuffer.EnsureAsync(length).ConfigureAwait(false);
+                return new ValueTask<ReadOnlySequence<byte>>(memory);
             }
-            return ReadPacket(packet, length);
+
+            return ReadMultiplePacketsAsyncSlow(cancellationToken);
         }
 
-        private ReadOnlySequence<byte> ReadPacket(ReadOnlySequence<byte> packet, int length)
+        private async ValueTask<ReadOnlySequence<byte>> ReadMultiplePacketsAsyncSlow(CancellationToken cancellationToken = default)
         {
-            Debug.Assert(packet.Length >= length);
-            this._packetEnd = length;
-            return packet.Slice(0, length);
+            var memory = await this._readBuffer.EnsureAsync(5).ConfigureAwait(false);
+            var firstPacketLength = ReadInt32BigEndian(memory.Slice(1)) + 1;
+            Debug.Assert(firstPacketLength < 8192);
+            if (memory.Length >= firstPacketLength)
+            {
+                return memory;
+            }
+
+            return await this._readBuffer.EnsureAsync(firstPacketLength).ConfigureAwait(false);
         }
+
+        public void Consume(long length) => _readBuffer.Consume(length);
 
         public static void ValidateResponseMessage(ReadOnlySequence<byte> response)
         {

@@ -1,6 +1,7 @@
 ﻿using BenchmarkDotNet.Attributes;
 using Npg.Core.Raw;
 using Npgsql;
+using System;
 using System.Buffers;
 using System.Net;
 using System.Threading.Tasks;
@@ -37,7 +38,7 @@ namespace Benchmark
             this.RawQuery = $"SELECT generate_series(1, {this.NumRows})";
         }
 
-        [GlobalSetup(Targets = new[] { nameof(ReadPipeRawSimple), nameof(ReadPipeRawExtended) })]
+        [GlobalSetup(Targets = new[] { nameof(ReadPipeRawSimple), nameof(ReadPipeRawExtended), nameof(ReadPipeRawExtendedMultiple) })]
         public async Task SetupPipeRaw()
         {
             var endpoint = IPEndPoint.Parse("127.0.0.1:5432");
@@ -128,6 +129,56 @@ namespace Benchmark
             var sq = new SequenceReader<byte>(response);
             sq.TryRead(out var read);
             return (BackendMessageCode)read;
+        }
+
+        [Benchmark]
+        public async ValueTask ReadPipeRawExtendedMultiple()
+        {
+            await this.PipeRawDB.ExecuteExtendedAsync(this.RawQuery);
+
+            var completed = false;
+            while (!completed)
+            {
+                var response = await this.PipeRawDB.ReadMultiplePacketsAsync();
+                completed = ReadPackets(response, out var read);
+                this.PipeRawDB.Consume(read);
+            }
+        }
+
+        public static bool ReadPackets(ReadOnlySequence<byte> response, out long read)
+        {
+            var reader = new SequenceReader<byte>(response);
+
+            while (true)
+            {
+                if (!reader.TryRead(out var codeByte))
+                {
+                    read = reader.Consumed;
+                    return false;
+                }
+
+                var code = (BackendMessageCode)codeByte;
+                if (!reader.TryReadBigEndian(out int length))
+                {
+                    read = reader.Consumed - 1;
+                    return false;
+                }
+
+                length -= 4;
+                if (reader.Remaining < length)
+                {
+                    read = reader.Consumed - 5;
+                    return false;
+                }
+                
+                if (code == BackendMessageCode.ReadyForQuery)
+                {
+                    read = reader.Consumed + length;
+                    return true;
+                }
+
+                reader.Advance(length);
+            }
         }
     }
 }
